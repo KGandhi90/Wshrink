@@ -1,0 +1,22 @@
+{
+  "name": "wolfram-shortener",
+  "displayName": "Wolfram Shortener",
+  "description": "Shortens Wolfram Language files on save",
+  "version": "0.0.1",
+  "publisher": "wolfram-shortener",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onWillSaveTextDocument"
+  ],
+  "main": "./extension.js",
+  "contributes": {},
+  "scripts": {},
+  "devDependencies": {
+    "@types/vscode": "^1.74.0"
+  }
+}
