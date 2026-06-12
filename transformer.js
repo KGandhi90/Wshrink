@@ -1,6 +1,22 @@
+let vscode;
+
+try {
+	vscode = require('vscode');
+} catch {
+	vscode = null;
+}
+
 const BRACKET_CLOSE = { '[': ']', '(': ')', '{': '}' };
 
 const DEDICATED_SYMBOLS = new Set(['Map', 'Apply', 'Not', 'And', 'Or', 'Part']);
+
+const DEFAULT_SETTINGS = {
+	enablePostfix: true,
+	enableMapOperator: true,
+	enableApplyOperator: true,
+	enableLogicalOperators: true,
+	enablePartNotation: true
+};
 
 const SHORT_OPERATORS = ['//', '/@', '@@'];
 
@@ -650,25 +666,55 @@ function transformPart(code) {
 	return applyReplacements(code, replacements);
 }
 
-const TRANSFORMS = [
-	transformPostfix,
-	transformMap,
-	transformApply,
-	transformLogical,
-	transformPart
-];
+/**
+ * @returns {{ enablePostfix: boolean, enableMapOperator: boolean, enableApplyOperator: boolean, enableLogicalOperators: boolean, enablePartNotation: boolean }}
+ */
+function getSettings() {
+	if (!vscode || !vscode.workspace || !vscode.workspace.getConfiguration) {
+		return DEFAULT_SETTINGS;
+	}
+
+	const configuration = vscode.workspace.getConfiguration('wolframShortener');
+
+	return {
+		enablePostfix: configuration.get('enablePostfix', true),
+		enableMapOperator: configuration.get('enableMapOperator', true),
+		enableApplyOperator: configuration.get('enableApplyOperator', true),
+		enableLogicalOperators: configuration.get('enableLogicalOperators', true),
+		enablePartNotation: configuration.get('enablePartNotation', true)
+	};
+}
 
 /**
  * @param {string} text
  * @returns {string}
  */
 function shorten(text) {
+	const settings = getSettings();
+	const transforms = [];
+
+	if (settings.enablePostfix) {
+		transforms.push(transformPostfix);
+	}
+	if (settings.enableMapOperator) {
+		transforms.push(transformMap);
+	}
+	if (settings.enableApplyOperator) {
+		transforms.push(transformApply);
+	}
+	if (settings.enableLogicalOperators) {
+		transforms.push(transformLogical);
+	}
+	if (settings.enablePartNotation) {
+		transforms.push(transformPart);
+	}
+
 	let result = text;
 	let changed = true;
 
 	while (changed) {
 		changed = false;
-		for (const transform of TRANSFORMS) {
+		for (const transform of transforms) {
 			const next = transform(result);
 			if (next !== result) {
 				result = next;

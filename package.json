@@ -5,18 +5,69 @@
   "version": "0.0.1",
   "publisher": "wolfram-shortener",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "onWillSaveTextDocument"
+    "onLanguage:wolfram"
   ],
   "main": "./extension.js",
-  "contributes": {},
+  "contributes": {
+    "languages": [
+      {
+        "id": "wolfram",
+        "aliases": [
+          "Wolfram Language"
+        ],
+        "extensions": [
+          ".wl",
+          ".m",
+          ".nb"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "wolfram-shortener.shortenFile",
+        "title": "WolframShrink: Shorten This File"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Wolfram Shortener",
+      "properties": {
+        "wolframShortener.enablePostfix": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shortening of ordinary Wolfram function calls to postfix form, such as f[x] -> x // f."
+        },
+        "wolframShortener.enableMapOperator": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shortening of Map[...] to /@."
+        },
+        "wolframShortener.enableApplyOperator": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shortening of Apply[...] to @@."
+        },
+        "wolframShortener.enableLogicalOperators": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shortening of Not, And, and Or to !, &&, and ||."
+        },
+        "wolframShortener.enablePartNotation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shortening of Part[...] to double-bracket notation."
+        }
+      }
+    }
+  },
   "scripts": {},
   "devDependencies": {
-    "@types/vscode": "^1.74.0"
+    "@types/vscode": "^1.85.0"
   }
 }
