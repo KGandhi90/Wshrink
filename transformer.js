@@ -2,50 +2,96 @@ const BRACKET_CLOSE = { '[': ']', '(': ')', '{': '}' };
 
 const DEDICATED_SYMBOLS = new Set(['Map', 'Apply', 'Not', 'And', 'Or', 'Part']);
 
+const SHORT_OPERATORS = ['//', '/@', '@@'];
+
+/**
+ * @param {string} text
+ * @returns {[number, number][]}
+ */
+function extractSafeZones(text) {
+	const zones = [];
+	let i = 0;
+
+	while (i < text.length) {
+		if (text[i] === '"') {
+			const start = i;
+			i++;
+			while (i < text.length) {
+				if (text[i] === '\\') {
+					i += 2;
+					continue;
+				}
+				if (text[i] === '"') {
+					i++;
+					break;
+				}
+				i++;
+			}
+			zones.push([start, i]);
+			continue;
+		}
+
+		if (text.startsWith('(*', i)) {
+			const start = i;
+			let depth = 1;
+			i += 2;
+			while (i < text.length && depth > 0) {
+				if (text.startsWith('(*', i)) {
+					depth++;
+					i += 2;
+				} else if (text.startsWith('*)', i)) {
+					depth--;
+					i += 2;
+				} else {
+					i++;
+				}
+			}
+			zones.push([start, i]);
+			continue;
+		}
+
+		i++;
+	}
+
+	return zones;
+}
+
+/**
+ * @param {number} pos
+ * @param {[number, number][]} safeZones
+ * @returns {boolean}
+ */
+function isInSafeZone(pos, safeZones) {
+	for (const [start, end] of safeZones) {
+		if (pos >= start && pos < end) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * @param {number} start
+ * @param {number} end
+ * @param {[number, number][]} safeZones
+ * @returns {boolean}
+ */
+function rangeOverlapsSafeZone(start, end, safeZones) {
+	return isInSafeZone(start, safeZones) || isInSafeZone(end - 1, safeZones);
+}
+
 /**
  * @param {string} code
  * @param {number} pos
  * @returns {boolean}
  */
 function isInsideString(code, pos) {
-	let inString = false;
-	let commentDepth = 0;
-
-	for (let i = 0; i < pos; i++) {
-		if (commentDepth > 0) {
-			if (code.startsWith('(*', i)) {
-				commentDepth++;
-				i++;
-			} else if (code.startsWith('*)', i)) {
-				commentDepth--;
-				i++;
-			}
-			continue;
-		}
-
-		if (inString) {
-			if (code[i] === '\\') {
-				i++;
-				continue;
-			}
-			if (code[i] === '"') {
-				inString = false;
-			}
-			continue;
-		}
-
-		if (code.startsWith('(*', i)) {
-			commentDepth = 1;
-			i++;
-			continue;
-		}
-
-		if (code[i] === '"') {
-			inString = true;
+	for (const [start, end] of extractSafeZones(code)) {
+		if (code[start] === '"' && pos >= start && pos < end) {
+			return true;
 		}
 	}
-
-	return inString;
+	return false;
 }
 
 /**
@@ -54,44 +100,12 @@ function isInsideString(code, pos) {
  * @returns {boolean}
  */
 function isInsideComment(code, pos) {
-	let inString = false;
-	let commentDepth = 0;
-
-	for (let i = 0; i < pos; i++) {
-		if (commentDepth > 0) {
-			if (code.startsWith('(*', i)) {
-				commentDepth++;
-				i++;
-			} else if (code.startsWith('*)', i)) {
-				commentDepth--;
-				i++;
-			}
-			continue;
-		}
-
-		if (inString) {
-			if (code[i] === '\\') {
-				i++;
-				continue;
-			}
-			if (code[i] === '"') {
-				inString = false;
-			}
-			continue;
-		}
-
-		if (code.startsWith('(*', i)) {
-			commentDepth = 1;
-			i++;
-			continue;
-		}
-
-		if (code[i] === '"') {
-			inString = true;
+	for (const [start, end] of extractSafeZones(code)) {
+		if (code.startsWith('(*', start) && pos >= start && pos < end) {
+			return true;
 		}
 	}
-
-	return commentDepth > 0;
+	return false;
 }
 
 /**
@@ -243,7 +257,7 @@ function baseSymbolName(name) {
  */
 function getSymbolNameBefore(code, bracketPos) {
 	let i = bracketPos - 1;
-	while (i >= 0 && (code[i] === ' ' || code[i] === '\t')) {
+	while (i >= 0 && /\s/.test(code[i])) {
 		i--;
 	}
 	if (i < 0) {
@@ -347,10 +361,10 @@ function hasTopLevelOperator(expr, op) {
 		} else if (ch === ']' || ch === ')' || ch === '}') {
 			bracketDepth--;
 		} else if (bracketDepth === 0) {
-			if (op === '//' && expr.startsWith('//', i)) {
+			if (op.length > 1 && expr.startsWith(op, i)) {
 				return true;
 			}
-			if (op === ';' && ch === ';') {
+			if (op.length === 1 && ch === op) {
 				return true;
 			}
 		}
@@ -360,14 +374,28 @@ function hasTopLevelOperator(expr, op) {
 }
 
 /**
+ * @param {string} expr
+ * @returns {boolean}
+ */
+function hasTopLevelShortOperator(expr) {
+	for (const op of SHORT_OPERATORS) {
+		if (hasTopLevelOperator(expr, op)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * @param {string} code
+ * @param {[number, number][]} safeZones
  * @returns {{ start: number, end: number, name: string, args: string[], argsStr: string }[]}
  */
-function findBracketCalls(code) {
+function findBracketCalls(code, safeZones) {
 	const calls = [];
 
 	for (let i = 0; i < code.length; i++) {
-		if (isInsideString(code, i) || isInsideComment(code, i)) {
+		if (isInSafeZone(i, safeZones)) {
 			continue;
 		}
 		if (code[i] !== '[') {
@@ -385,10 +413,16 @@ function findBracketCalls(code) {
 		}
 
 		const nameStart = i - name.length;
+		const callEnd = closePos + 1;
+
+		if (rangeOverlapsSafeZone(nameStart, callEnd, safeZones)) {
+			continue;
+		}
+
 		const argsStr = code.slice(i + 1, closePos);
 		calls.push({
 			start: nameStart,
-			end: closePos + 1,
+			end: callEnd,
 			name,
 			args: splitTopLevelArgs(argsStr),
 			argsStr
@@ -399,14 +433,31 @@ function findBracketCalls(code) {
 }
 
 /**
+ * @param {{ start: number, end: number, replacement: string }[]} replacements
+ * @returns {{ start: number, end: number, replacement: string }[]}
+ */
+function filterInnermost(replacements) {
+	return replacements.filter((candidate) => {
+		return !replacements.some(
+			(other) =>
+				other !== candidate &&
+				other.start >= candidate.start &&
+				other.end <= candidate.end &&
+				(other.start !== candidate.start || other.end !== candidate.end)
+		);
+	});
+}
+
+/**
  * @param {string} code
  * @param {{ start: number, end: number, replacement: string }[]} replacements
  * @returns {string}
  */
 function applyReplacements(code, replacements) {
-	replacements.sort((a, b) => b.start - a.start);
+	const innermost = filterInnermost(replacements);
+	innermost.sort((a, b) => b.start - a.start);
 	let result = code;
-	for (const { start, end, replacement } of replacements) {
+	for (const { start, end, replacement } of innermost) {
 		result = result.slice(0, start) + replacement + result.slice(end);
 	}
 	return result;
@@ -417,9 +468,10 @@ function applyReplacements(code, replacements) {
  * @returns {string}
  */
 function transformPostfix(code) {
+	const safeZones = extractSafeZones(code);
 	const replacements = [];
 
-	for (const call of findBracketCalls(code)) {
+	for (const call of findBracketCalls(code, safeZones)) {
 		const baseName = baseSymbolName(call.name);
 		if (DEDICATED_SYMBOLS.has(baseName)) {
 			continue;
@@ -433,6 +485,10 @@ function transformPostfix(code) {
 		const functionName = call.name;
 
 		if (expression.length <= functionName.length) {
+			continue;
+		}
+
+		if (hasTopLevelShortOperator(expression)) {
 			continue;
 		}
 
@@ -463,9 +519,10 @@ function transformPostfix(code) {
  * @returns {string}
  */
 function transformBinaryOperator(code, symbol, operator) {
+	const safeZones = extractSafeZones(code);
 	const replacements = [];
 
-	for (const call of findBracketCalls(code)) {
+	for (const call of findBracketCalls(code, safeZones)) {
 		if (baseSymbolName(call.name) !== symbol) {
 			continue;
 		}
@@ -475,6 +532,11 @@ function transformBinaryOperator(code, symbol, operator) {
 
 		const left = call.args[0].trim();
 		const right = call.args[1].trim();
+
+		if (hasTopLevelShortOperator(left) || hasTopLevelShortOperator(right)) {
+			continue;
+		}
+
 		const replacement = `${left} ${operator} ${right}`;
 		const original = code.slice(call.start, call.end);
 
@@ -511,18 +573,26 @@ function transformApply(code) {
  * @returns {string}
  */
 function transformLogical(code) {
+	const safeZones = extractSafeZones(code);
 	const replacements = [];
 
-	for (const call of findBracketCalls(code)) {
+	for (const call of findBracketCalls(code, safeZones)) {
 		const baseName = baseSymbolName(call.name);
 		let replacement = null;
 
 		if (baseName === 'Not' && call.args.length === 1) {
-			replacement = `!${call.args[0].trim()}`;
+			const arg = call.args[0].trim();
+			if (!hasTopLevelShortOperator(arg)) {
+				replacement = `!${arg}`;
+			}
 		} else if (baseName === 'And' && call.args.length >= 1) {
-			replacement = call.args.map((arg) => arg.trim()).join(' && ');
+			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
+				replacement = call.args.map((arg) => arg.trim()).join(' && ');
+			}
 		} else if (baseName === 'Or' && call.args.length >= 1) {
-			replacement = call.args.map((arg) => arg.trim()).join(' || ');
+			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
+				replacement = call.args.map((arg) => arg.trim()).join(' || ');
+			}
 		}
 
 		if (!replacement) {
@@ -547,9 +617,10 @@ function transformLogical(code) {
  * @returns {string}
  */
 function transformPart(code) {
+	const safeZones = extractSafeZones(code);
 	const replacements = [];
 
-	for (const call of findBracketCalls(code)) {
+	for (const call of findBracketCalls(code, safeZones)) {
 		if (baseSymbolName(call.name) !== 'Part') {
 			continue;
 		}
@@ -559,6 +630,11 @@ function transformPart(code) {
 
 		const expr = call.args[0].trim();
 		const index = call.args[1].trim();
+
+		if (hasTopLevelShortOperator(expr)) {
+			continue;
+		}
+
 		const replacement = `${expr}[[${index}]]`;
 		const original = code.slice(call.start, call.end);
 
@@ -605,3 +681,80 @@ function shorten(text) {
 }
 
 module.exports = { shorten };
+
+if (require.main === module) {
+	let passed = 0;
+	let failed = 0;
+
+	/**
+	 * @param {string} name
+	 * @param {string} input
+	 * @param {string} expected
+	 */
+	function test(name, input, expected) {
+		const result = shorten(input);
+		if (result === expected) {
+			passed++;
+			console.log(`PASS: ${name}`);
+		} else {
+			failed++;
+			console.log(`FAIL: ${name}`);
+			console.log(`  input:    ${JSON.stringify(input)}`);
+			console.log(`  expected: ${JSON.stringify(expected)}`);
+			console.log(`  got:      ${JSON.stringify(result)}`);
+		}
+	}
+
+	/**
+	 * @param {string} name
+	 * @param {string} input
+	 */
+	function testIdempotent(name, input) {
+		const once = shorten(input);
+		const twice = shorten(once);
+		if (once === twice) {
+			passed++;
+			console.log(`PASS: ${name}`);
+		} else {
+			failed++;
+			console.log(`FAIL: ${name}`);
+			console.log(`  once:  ${JSON.stringify(once)}`);
+			console.log(`  twice: ${JSON.stringify(twice)}`);
+		}
+	}
+
+	test('Map operator', 'Map[Sqrt, {1,2,3}]', 'Sqrt /@ {1,2,3}');
+	test('Apply operator', 'Apply[Plus, {1,2,3}]', 'Plus @@ {1,2,3}');
+	test('Not operator', 'Not[x]', '!x');
+	test('And operator', 'And[a, b, c]', 'a && b && c');
+	test('Or operator', 'Or[x, y]', 'x || y');
+	test('Part notation', 'Part[myList, 3]', 'myList[[3]]');
+
+	test(
+		'multiline Map',
+		'Map[\n  Sqrt,\n  {1, 2, 3}\n]',
+		'Sqrt /@ {1, 2, 3}'
+	);
+
+	test(
+		'nested inner-first',
+		'Print[Map[Sqrt, {1,2,3}]]',
+		'Print[Sqrt /@ {1,2,3}]'
+	);
+
+	test('comment untouched', '(* Map[x, y] *)', '(* Map[x, y] *)');
+	test('string untouched', '"Map[x, y]"', '"Map[x, y]"');
+	test(
+		'string with brackets inside',
+		'Map[a, "f[1, 2]"]',
+		'a /@ "f[1, 2]"'
+	);
+
+	testIdempotent('already shortened Map', 'Sqrt /@ {1,2,3}');
+	testIdempotent('already shortened Apply', 'Plus @@ {1,2,3}');
+	testIdempotent('already shortened Not', '!x');
+	testIdempotent('already shortened Part', 'myList[[3]]');
+
+	console.log(`\n${passed} passed, ${failed} failed`);
+	process.exit(failed > 0 ? 1 : 0);
+}
