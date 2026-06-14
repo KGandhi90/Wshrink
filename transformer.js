@@ -598,7 +598,9 @@ function transformLogical(code) {
 
 		if (baseName === 'Not' && call.args.length === 1) {
 			const arg = call.args[0].trim();
-			if (!hasTopLevelShortOperator(arg)) {
+			if (arg.includes('&&') || arg.includes('||') || arg.includes('//')) {
+				replacement = `!(${arg})`;
+			} else {
 				replacement = `!${arg}`;
 			}
 		} else if (baseName === 'And' && call.args.length >= 1) {
@@ -772,6 +774,8 @@ if (require.main === module) {
 	test('Map operator', 'Map[Sqrt, {1,2,3}]', 'Sqrt /@ {1,2,3}');
 	test('Apply operator', 'Apply[Plus, {1,2,3}]', 'Plus @@ {1,2,3}');
 	test('Not operator', 'Not[x]', '!x');
+	test('Not operator with infix expression', 'Not[a && b]', '!(a && b)');
+	test('Not operator with postfix expression', 'Not[x // f]', '!(x // f)');
 	test('And operator', 'And[a, b, c]', 'a && b && c');
 	test('Or operator', 'Or[x, y]', 'x || y');
 	test('Part notation', 'Part[myList, 3]', 'myList[[3]]');
