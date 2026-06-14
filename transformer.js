@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
 	enablePartNotation: true
 };
 
-const SHORT_OPERATORS = ['//', '/@', '@@'];
+const SHORT_OPERATORS = ['/@', '@@'];
 const TRAILING_COMMENT_TOKEN_PREFIX = '__WOLFRAM_SHORTENER_COMMENT_';
 
 /**
@@ -564,25 +564,23 @@ function transformPostfix(code) {
 			continue;
 		}
 
-		if (hasTopLevelShortOperator(expression)) {
-			continue;
-		}
+		const hasSlashSlash = hasTopLevelOperator(expression, '//');
+		const hasSemicolon = hasTopLevelOperator(expression, ';');
 
+		// Wrap in parens only for ; and //, not for /@ and @@
 		let outputExpr = expression;
-		if (hasTopLevelOperator(expression, '//') || hasTopLevelOperator(expression, ';')) {
+		if (hasSlashSlash || hasSemicolon) {
 			outputExpr = `(${expression})`;
 		}
 
 		const replacement = `${outputExpr} // ${functionName}`;
-		const original = code.slice(call.start, call.end);
 
-		if (replacement.length < original.length) {
-			replacements.push({
-				start: call.start,
-				end: call.end,
-				replacement
-			});
-		}
+		// Apply postfix transformation without length check
+		replacements.push({
+			start: call.start,
+			end: call.end,
+			replacement
+		});
 	}
 
 	return applyReplacements(code, replacements);
@@ -606,17 +604,34 @@ function transformBinaryOperator(code, symbol, operator) {
 			continue;
 		}
 
-		const left = call.args[0].trim();
-		const right = call.args[1].trim();
+		let left = call.args[0].trim();
+		let right = call.args[1].trim();
 
 		if (hasTopLevelShortOperator(left) || hasTopLevelShortOperator(right)) {
 			continue;
 		}
 
+		// Don't transform if left argument contains // or ; (too complex)
+		if (hasTopLevelOperator(left, '//') || hasTopLevelOperator(left, ';')) {
+			continue;
+		}
+
+		// Wrap right argument if it contains / or ; operators (for correct precedence)
+		let needsWrapping = false;
+		if (hasTopLevelOperator(right, '//') || hasTopLevelOperator(right, ';')) {
+			right = `(${right})`;
+			needsWrapping = true;
+		}
+
 		const replacement = `${left} ${operator} ${right}`;
 		const original = code.slice(call.start, call.end);
 
-		if (replacement.length < original.length) {
+		// Allow equal-length if wrapping was needed (for precedence correctness)
+		const shouldApply = needsWrapping 
+			? replacement.length <= original.length 
+			: replacement.length < original.length;
+
+		if (shouldApply) {
 			replacements.push({
 				start: call.start,
 				end: call.end,
@@ -689,11 +704,13 @@ function transformLogical(code) {
 		let replacement = null;
 
 		if (baseName === 'Not' && call.args.length === 1) {
-			const arg = call.args[0].trim();
-			if (arg.includes('&&') || arg.includes('||') || arg.includes('//')) {
-				replacement = `!(${arg})`;
+			let arg = call.args[0].trim();
+			// Apply inner transformations first
+			const shortenedArg = shorten(arg);
+			if (shortenedArg.includes('&&') || shortenedArg.includes('||') || shortenedArg.includes('//')) {
+				replacement = `!(${shortenedArg})`;
 			} else {
-				replacement = `!${arg}`;
+				replacement = `!${shortenedArg}`;
 			}
 		} else if (baseName === 'And' && call.args.length >= 1) {
 			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
@@ -749,11 +766,10 @@ function transformPart(code) {
 		const expr = call.args[0].trim();
 		const index = call.args[1].trim();
 
-		if (hasTopLevelShortOperator(expr)) {
-			continue;
-		}
-
-		const replacement = `${expr}[[${index}]]`;
+		// Wrap expr in parens if it contains operators
+		const needsWrap = hasTopLevelShortOperator(expr);
+		const wrappedExpr = needsWrap ? `(${expr})` : expr;
+		const replacement = `${wrappedExpr}[[${index}]]`;
 		const original = code.slice(call.start, call.end);
 
 		if (replacement.length < original.length) {
@@ -902,6 +918,21 @@ if (require.main === module) {
 		'a /@ "f[1, 2]"'
 	);
 	test('Map arg with //', 'Map[f // g, {1,2,3}]', 'Map[f // g, {1,2,3}]');
+
+	// BUG 1: Not needs to shorten inner arg first
+	test('BUG 1: Not[And[a, b]]', 'Not[And[a, b]]', '!(a && b)');
+
+	// BUG 2: Postfix should wrap args with short operators
+	test('BUG 2: Print[Sqrt /@ Plus @@ {1,2,3}]', 'Print[Sqrt /@ Plus @@ {1,2,3}]', 'Sqrt /@ Plus @@ {1,2,3} // Print');
+
+	// BUG 3: Part should work with operator-containing args
+	test('BUG 3: Part[Sqrt /@ {1,4,9}, 2]', 'Part[Sqrt /@ {1,4,9}, 2]', '(Sqrt /@ {1,4,9})[[2]]');
+
+	// BUG 4: Trailing comments should be preserved
+	test('BUG 4: Print[Range[10]] (* comment *)', 'Print[Range[10]] (* comment *)', 'Range[10] // Print (* comment *)');
+
+	// BUG 5: splitTopLevelArgs should handle // correctly
+	test('BUG 5: Map[Sqrt, Range[10] // Sort]', 'Map[Sqrt, Range[10] // Sort]', 'Sqrt /@ (Range[10] // Sort)');
 
 	testIdempotent('already shortened Map', 'Sqrt /@ {1,2,3}');
 	testIdempotent('already shortened Apply', 'Plus @@ {1,2,3}');
