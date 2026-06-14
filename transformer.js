@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const SHORT_OPERATORS = ['//', '/@', '@@'];
+const TRAILING_COMMENT_TOKEN_PREFIX = '__WOLFRAM_SHORTENER_COMMENT_';
 
 /**
  * @param {string} text
@@ -236,6 +237,12 @@ function splitTopLevelArgs(argsStr) {
 		if (argsStr[i] === '"') {
 			inString = true;
 			current += argsStr[i];
+			continue;
+		}
+
+		if (argsStr.startsWith('//', i)) {
+			current += '//';
+			i++;
 			continue;
 		}
 
@@ -475,6 +482,59 @@ function applyReplacements(code, replacements) {
 	let result = code;
 	for (const { start, end, replacement } of innermost) {
 		result = result.slice(0, start) + replacement + result.slice(end);
+	}
+	return result;
+}
+
+/**
+ * @param {string} text
+ * @returns {{ text: string, comments: string[] }}
+ */
+function stripTrailingComments(text) {
+	const lines = text.split(/(\r?\n)/);
+	const comments = [];
+	let result = '';
+	let commentIndex = 0;
+
+	for (let i = 0; i < lines.length; i += 2) {
+		const line = lines[i] ?? '';
+		const lineEnding = lines[i + 1] ?? '';
+		let strippedLine = line;
+		const safeZones = extractSafeZones(line);
+
+		for (let zoneIndex = safeZones.length - 1; zoneIndex >= 0; zoneIndex--) {
+			const [start, end] = safeZones[zoneIndex];
+			if (!line.startsWith('(*', start)) {
+				continue;
+			}
+
+			if (line.slice(end).trim().length !== 0) {
+				continue;
+			}
+
+			const token = `${TRAILING_COMMENT_TOKEN_PREFIX}${commentIndex}__`;
+			comments.push(line.slice(start));
+			strippedLine = `${line.slice(0, start)}${token}`;
+			commentIndex++;
+			break;
+		}
+
+		result += strippedLine + lineEnding;
+	}
+
+	return { text: result, comments };
+}
+
+/**
+ * @param {string} text
+ * @param {string[]} comments
+ * @returns {string}
+ */
+function restoreTrailingComments(text, comments) {
+	let result = text;
+	for (let i = 0; i < comments.length; i++) {
+		const token = `${TRAILING_COMMENT_TOKEN_PREFIX}${i}__`;
+		result = result.replaceAll(token, comments[i]);
 	}
 	return result;
 }
@@ -732,6 +792,7 @@ function getSettings() {
  * @returns {string}
  */
 function shorten(text) {
+	const stripped = stripTrailingComments(text);
 	const settings = getSettings();
 	const transforms = [];
 
@@ -753,7 +814,7 @@ function shorten(text) {
 
 	let previous;
 	let iterations = 0;
-	let current = text;
+	let current = stripped.text;
 
 	do {
 		previous = current;
@@ -763,7 +824,7 @@ function shorten(text) {
 		iterations++;
 	} while (previous !== current && iterations < 10);
 
-	return current;
+	return restoreTrailingComments(current, stripped.comments);
 }
 
 module.exports = { shorten };
@@ -833,12 +894,14 @@ if (require.main === module) {
 	);
 
 	test('comment untouched', '(* Map[x, y] *)', '(* Map[x, y] *)');
+	test('trailing comment preserved', 'Map[Sqrt, {1,2,3}] (* note *)', 'Sqrt /@ {1,2,3} (* note *)');
 	test('string untouched', '"Map[x, y]"', '"Map[x, y]"');
 	test(
 		'string with brackets inside',
 		'Map[a, "f[1, 2]"]',
 		'a /@ "f[1, 2]"'
 	);
+	test('Map arg with //', 'Map[f // g, {1,2,3}]', 'Map[f // g, {1,2,3}]');
 
 	testIdempotent('already shortened Map', 'Sqrt /@ {1,2,3}');
 	testIdempotent('already shortened Apply', 'Plus @@ {1,2,3}');
