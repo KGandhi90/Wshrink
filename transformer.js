@@ -591,8 +591,40 @@ function transformApply(code) {
 function transformLogical(code) {
 	const safeZones = extractSafeZones(code);
 	const replacements = [];
+	const calls = findBracketCalls(code, safeZones);
 
-	for (const call of findBracketCalls(code, safeZones)) {
+	/**
+	 * @param {string} arg
+	 * @returns {string}
+	 */
+	function normalizeLogicalArg(arg) {
+		const trimmedArg = arg.trim();
+		if (/^[a-zA-Z$`][a-zA-Z0-9$`]*\[.*\]$/.test(trimmedArg)) {
+			const shortenedArg = shorten(trimmedArg);
+			return shortenedArg;
+		}
+
+		return trimmedArg;
+	}
+
+	for (const call of calls) {
+		if (
+			calls.some((otherCall) => {
+				if (otherCall === call) {
+					return false;
+				}
+
+				const otherBaseName = baseSymbolName(otherCall.name);
+				return (
+					(otherBaseName === 'Not' || otherBaseName === 'And' || otherBaseName === 'Or') &&
+					otherCall.start < call.start &&
+					otherCall.end > call.end
+				);
+			})
+		) {
+			continue;
+		}
+
 		const baseName = baseSymbolName(call.name);
 		let replacement = null;
 
@@ -605,11 +637,19 @@ function transformLogical(code) {
 			}
 		} else if (baseName === 'And' && call.args.length >= 1) {
 			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
-				replacement = call.args.map((arg) => arg.trim()).join(' && ');
+				const wrappedArgs = call.args.map((arg) => {
+					const normalizedArg = normalizeLogicalArg(arg);
+					return normalizedArg.includes('||') ? `(${normalizedArg})` : normalizedArg;
+				});
+				replacement = wrappedArgs.join(' && ');
 			}
 		} else if (baseName === 'Or' && call.args.length >= 1) {
 			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
-				replacement = call.args.map((arg) => arg.trim()).join(' || ');
+				const wrappedArgs = call.args.map((arg) => {
+					const normalizedArg = normalizeLogicalArg(arg);
+					return normalizedArg.includes('&&') ? `(${normalizedArg})` : normalizedArg;
+				});
+				replacement = wrappedArgs.join(' || ');
 			}
 		}
 
@@ -777,7 +817,9 @@ if (require.main === module) {
 	test('Not operator with infix expression', 'Not[a && b]', '!(a && b)');
 	test('Not operator with postfix expression', 'Not[x // f]', '!(x // f)');
 	test('And operator', 'And[a, b, c]', 'a && b && c');
+	test('And operator wraps Or argument', 'And[a, Or[b, c]]', 'a && (b || c)');
 	test('Or operator', 'Or[x, y]', 'x || y');
+	test('Or operator wraps And argument', 'Or[x, And[y, z]]', 'x || (y && z)');
 	test('Part notation', 'Part[myList, 3]', 'myList[[3]]');
 
 	test(
