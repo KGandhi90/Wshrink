@@ -751,21 +751,19 @@ function shorten(text) {
 		transforms.push(transformPart);
 	}
 
-	let result = text;
-	let changed = true;
+	let previous;
+	let iterations = 0;
+	let current = text;
 
-	while (changed) {
-		changed = false;
+	do {
+		previous = current;
 		for (const transform of transforms) {
-			const next = transform(result);
-			if (next !== result) {
-				result = next;
-				changed = true;
-			}
+			current = transform(current);
 		}
-	}
+		iterations++;
+	} while (previous !== current && iterations < 10);
 
-	return result;
+	return current;
 }
 
 module.exports = { shorten };
