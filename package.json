@@ -2,7 +2,7 @@
   "name": "wshrink",
   "displayName": "Wshrink",
   "description": "Shortens Wolfram Language files on save",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "kevinGandhi",
   "engines": {
     "vscode": "^1.85.0"
@@ -69,5 +69,9 @@
   "scripts": {},
   "devDependencies": {
     "@types/vscode": "^1.85.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KGandhi90/Wshrink.git"
   }
 }
