@@ -9,6 +9,17 @@ try {
 const BRACKET_CLOSE = { '[': ']', '(': ')', '{': '}' };
 
 const DEDICATED_SYMBOLS = new Set(['Map', 'Apply', 'Not', 'And', 'Or', 'Part']);
+const PROTECTED_SYMBOLS = new Set([
+	'Hold',
+	'HoldFirst',
+	'HoldRest',
+	'HoldAll',
+	'HoldComplete',
+	'HoldPattern',
+	'HoldForm',
+	'Unevaluated',
+	'Inactive'
+]);
 
 const DEFAULT_SETTINGS = {
 	enablePostfix: true,
@@ -20,6 +31,7 @@ const DEFAULT_SETTINGS = {
 
 const SHORT_OPERATORS = ['/@', '@@'];
 const TRAILING_COMMENT_TOKEN_PREFIX = '__WOLFRAM_SHORTENER_COMMENT_';
+const ASSIGNMENT_TOKEN_PREFIX = '__WOLFRAM_SHORTENER_ASSIGNMENT_';
 
 /**
  * @param {string} text
@@ -85,6 +97,150 @@ function isInSafeZone(pos, safeZones) {
 		}
 	}
 	return false;
+}
+
+/**
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isProtectedSymbol(name) {
+	return PROTECTED_SYMBOLS.has(baseSymbolName(name));
+}
+
+/**
+ * @param {string} code
+ * @returns {{ start: number, end: number }[]}
+ */
+function findProtectedCallRanges(code) {
+	const safeZones = extractSafeZones(code);
+	return findBracketCalls(code, safeZones)
+		.filter((call) => isProtectedSymbol(call.name))
+		.map((call) => ({ start: call.start, end: call.end }));
+}
+
+/**
+ * @param {number} start
+ * @param {number} end
+ * @param {{ start: number, end: number }[]} ranges
+ * @returns {boolean}
+ */
+function isRangeInsideAny(start, end, ranges) {
+	return ranges.some((range) => start >= range.start && end <= range.end);
+}
+
+/**
+ * @param {string} line
+ * @returns {{ index: number, length: number } | null}
+ */
+function findTopLevelAssignmentOperator(line) {
+	let bracketDepth = 0;
+	let inString = false;
+	let commentDepth = 0;
+
+	for (let i = 0; i < line.length; i++) {
+		if (commentDepth > 0) {
+			if (line.startsWith('(*', i)) {
+				commentDepth++;
+				i++;
+			} else if (line.startsWith('*)', i)) {
+				commentDepth--;
+				i++;
+			}
+			continue;
+		}
+
+		if (inString) {
+			if (line[i] === '\\') {
+				i++;
+				continue;
+			}
+			if (line[i] === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (line.startsWith('(*', i)) {
+			commentDepth = 1;
+			i++;
+			continue;
+		}
+
+		if (line[i] === '"') {
+			inString = true;
+			continue;
+		}
+
+		const ch = line[i];
+		if (ch === '[' || ch === '(' || ch === '{') {
+			bracketDepth++;
+			continue;
+		}
+		if (ch === ']' || ch === ')' || ch === '}') {
+			bracketDepth--;
+			continue;
+		}
+
+		if (bracketDepth !== 0) {
+			continue;
+		}
+
+		if (line.startsWith(':=', i)) {
+			return { index: i, length: 2 };
+		}
+
+		if (ch === '=') {
+			const prev = i > 0 ? line[i - 1] : '';
+			const next = i + 1 < line.length ? line[i + 1] : '';
+			if (prev !== '=' && prev !== '<' && prev !== '>' && prev !== '!' && next !== '=') {
+				return { index: i, length: 1 };
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * @param {string} text
+ * @returns {{ text: string, assignments: { token: string, lhs: string }[] }}
+ */
+function maskAssignmentLeftSides(text) {
+	const lines = text.split(/(\r?\n)/);
+	const assignments = [];
+	let assignmentIndex = 0;
+	let result = '';
+
+	for (let i = 0; i < lines.length; i += 2) {
+		const line = lines[i] ?? '';
+		const lineEnding = lines[i + 1] ?? '';
+		const assignment = findTopLevelAssignmentOperator(line);
+
+		if (assignment) {
+			const token = `${ASSIGNMENT_TOKEN_PREFIX}${assignmentIndex}__`;
+			assignments.push({ token, lhs: line.slice(0, assignment.index) });
+			result += `${token}${line.slice(assignment.index)}` + lineEnding;
+			assignmentIndex++;
+			continue;
+		}
+
+		result += line + lineEnding;
+	}
+
+	return { text: result, assignments };
+}
+
+/**
+ * @param {string} text
+ * @param {{ token: string, lhs: string }[]} assignments
+ * @returns {string}
+ */
+function restoreAssignmentLeftSides(text, assignments) {
+	let result = text;
+	for (const assignment of assignments) {
+		result = result.replaceAll(assignment.token, assignment.lhs);
+	}
+	return result;
 }
 
 /**
@@ -410,6 +566,20 @@ function hasTopLevelShortOperator(expr) {
 }
 
 /**
+ * @param {string} expr
+ * @returns {number}
+ */
+function countTopLevelShortOperators(expr) {
+	let count = 0;
+	for (const op of SHORT_OPERATORS) {
+		if (hasTopLevelOperator(expr, op)) {
+			count++;
+		}
+	}
+	return count;
+}
+
+/**
  * @param {string} code
  * @param {[number, number][]} safeZones
  * @returns {{ start: number, end: number, name: string, args: string[], argsStr: string }[]}
@@ -545,9 +715,14 @@ function restoreTrailingComments(text, comments) {
  */
 function transformPostfix(code) {
 	const safeZones = extractSafeZones(code);
+	const blockedRanges = findProtectedCallRanges(code);
 	const replacements = [];
 
 	for (const call of findBracketCalls(code, safeZones)) {
+		if (isRangeInsideAny(call.start, call.end, blockedRanges)) {
+			continue;
+		}
+
 		const baseName = baseSymbolName(call.name);
 		if (DEDICATED_SYMBOLS.has(baseName)) {
 			continue;
@@ -566,6 +741,7 @@ function transformPostfix(code) {
 
 		const hasSlashSlash = hasTopLevelOperator(expression, '//');
 		const hasSemicolon = hasTopLevelOperator(expression, ';');
+		const shortOpCount = countTopLevelShortOperators(expression);
 
 		// Wrap in parens only for ; and //, not for /@ and @@
 		let outputExpr = expression;
@@ -574,13 +750,16 @@ function transformPostfix(code) {
 		}
 
 		const replacement = `${outputExpr} // ${functionName}`;
+		const original = code.slice(call.start, call.end);
+		const shouldApply = shortOpCount !== 1 || replacement.length < original.length;
 
-		// Apply postfix transformation without length check
-		replacements.push({
-			start: call.start,
-			end: call.end,
-			replacement
-		});
+		if (shouldApply) {
+			replacements.push({
+				start: call.start,
+				end: call.end,
+				replacement
+			});
+		}
 	}
 
 	return applyReplacements(code, replacements);
@@ -594,9 +773,14 @@ function transformPostfix(code) {
  */
 function transformBinaryOperator(code, symbol, operator) {
 	const safeZones = extractSafeZones(code);
+	const blockedRanges = findProtectedCallRanges(code);
 	const replacements = [];
 
 	for (const call of findBracketCalls(code, safeZones)) {
+		if (isRangeInsideAny(call.start, call.end, blockedRanges)) {
+			continue;
+		}
+
 		if (baseSymbolName(call.name) !== symbol) {
 			continue;
 		}
@@ -665,6 +849,7 @@ function transformApply(code) {
  */
 function transformLogical(code) {
 	const safeZones = extractSafeZones(code);
+	const blockedRanges = findProtectedCallRanges(code);
 	const replacements = [];
 	const calls = findBracketCalls(code, safeZones);
 
@@ -683,6 +868,10 @@ function transformLogical(code) {
 	}
 
 	for (const call of calls) {
+		if (isRangeInsideAny(call.start, call.end, blockedRanges)) {
+			continue;
+		}
+
 		if (
 			calls.some((otherCall) => {
 				if (otherCall === call) {
@@ -705,29 +894,24 @@ function transformLogical(code) {
 
 		if (baseName === 'Not' && call.args.length === 1) {
 			let arg = call.args[0].trim();
-			// Apply inner transformations first
-			const shortenedArg = shorten(arg);
+			const shortenedArg = applyAllTransformations(arg);
 			if (shortenedArg.includes('&&') || shortenedArg.includes('||') || shortenedArg.includes('//')) {
 				replacement = `!(${shortenedArg})`;
 			} else {
 				replacement = `!${shortenedArg}`;
 			}
 		} else if (baseName === 'And' && call.args.length >= 1) {
-			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
-				const wrappedArgs = call.args.map((arg) => {
-					const normalizedArg = normalizeLogicalArg(arg);
-					return normalizedArg.includes('||') ? `(${normalizedArg})` : normalizedArg;
-				});
-				replacement = wrappedArgs.join(' && ');
-			}
+			const wrappedArgs = call.args.map((arg) => {
+				const normalizedArg = normalizeLogicalArg(arg);
+				return normalizedArg.includes('||') ? `(${normalizedArg})` : normalizedArg;
+			});
+			replacement = wrappedArgs.join(' && ');
 		} else if (baseName === 'Or' && call.args.length >= 1) {
-			if (!call.args.some((arg) => hasTopLevelShortOperator(arg))) {
-				const wrappedArgs = call.args.map((arg) => {
-					const normalizedArg = normalizeLogicalArg(arg);
-					return normalizedArg.includes('&&') ? `(${normalizedArg})` : normalizedArg;
-				});
-				replacement = wrappedArgs.join(' || ');
-			}
+			const wrappedArgs = call.args.map((arg) => {
+				const normalizedArg = normalizeLogicalArg(arg);
+				return normalizedArg.includes('&&') ? `(${normalizedArg})` : normalizedArg;
+			});
+			replacement = wrappedArgs.join(' || ');
 		}
 
 		if (!replacement) {
@@ -753,9 +937,14 @@ function transformLogical(code) {
  */
 function transformPart(code) {
 	const safeZones = extractSafeZones(code);
+	const blockedRanges = findProtectedCallRanges(code);
 	const replacements = [];
 
 	for (const call of findBracketCalls(code, safeZones)) {
+		if (isRangeInsideAny(call.start, call.end, blockedRanges)) {
+			continue;
+		}
+
 		if (baseSymbolName(call.name) !== 'Part') {
 			continue;
 		}
@@ -809,12 +998,20 @@ function getSettings() {
  */
 function shorten(text) {
 	const stripped = stripTrailingComments(text);
-	const settings = getSettings();
+	const masked = maskAssignmentLeftSides(stripped.text);
+	const current = applyAllTransformations(masked.text, getSettings());
+
+	return restoreTrailingComments(restoreAssignmentLeftSides(current, masked.assignments), stripped.comments);
+}
+
+/**
+ * @param {string} text
+ * @param {{ enablePostfix: boolean, enableMapOperator: boolean, enableApplyOperator: boolean, enableLogicalOperators: boolean, enablePartNotation: boolean }} [settings]
+ * @returns {string}
+ */
+function applyAllTransformations(text, settings = getSettings()) {
 	const transforms = [];
 
-	if (settings.enablePostfix) {
-		transforms.push(transformPostfix);
-	}
 	if (settings.enableMapOperator) {
 		transforms.push(transformMap);
 	}
@@ -827,10 +1024,13 @@ function shorten(text) {
 	if (settings.enablePartNotation) {
 		transforms.push(transformPart);
 	}
+	if (settings.enablePostfix) {
+		transforms.push(transformPostfix);
+	}
 
 	let previous;
 	let iterations = 0;
-	let current = stripped.text;
+	let current = text;
 
 	do {
 		previous = current;
@@ -840,7 +1040,7 @@ function shorten(text) {
 		iterations++;
 	} while (previous !== current && iterations < 10);
 
-	return restoreTrailingComments(current, stripped.comments);
+	return current;
 }
 
 module.exports = { shorten };
