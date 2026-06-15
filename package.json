@@ -2,7 +2,7 @@
   "name": "wshrink",
   "displayName": "Wshrink",
   "description": "Shortens Wolfram Language files on save",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "kevinGandhi",
   "engines": {
     "vscode": "^1.85.0"
