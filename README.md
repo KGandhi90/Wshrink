@@ -1,4 +1,8 @@
 # Wshrink 🔥
+Just like Prettier formats JavaScript, Wshrink optimizes your Wolfram code using the language's own built-in shorthand operators. Write verbose, readable code — save the file — get clean, idiomatic Wolfram.
+4. Open any of the Wolfram files (files ending with .wl) and save it.
+Go to `File → Preferences → Settings` and search for `Wshrink` to configure:
+# Wshrink 🔥
 
 A VS Code extension that automatically shortens Wolfram Language code on save — without changing the logic.
 

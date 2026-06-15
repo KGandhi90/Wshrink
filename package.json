@@ -1,9 +1,9 @@
 {
-  "name": "wolfram-shortener",
-  "displayName": "Wolfram Shortener",
+  "name": "wshrink",
+  "displayName": "Wshrink",
   "description": "Shortens Wolfram Language files on save",
   "version": "0.0.1",
-  "publisher": "wolfram-shortener",
+  "publisher": "wshrink",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -30,13 +30,13 @@
     ],
     "commands": [
       {
-        "command": "wolfram-shortener.shortenFile",
-        "title": "WolframShrink: Shorten This File"
+        "command": "wshrink.shortenFile",
+        "title": "Wshrink: Shorten This File"
       }
     ],
     "configuration": {
       "type": "object",
-      "title": "Wolfram Shortener",
+      "title": "Wshrink",
       "properties": {
         "wolframShortener.enablePostfix": {
           "type": "boolean",

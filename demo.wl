@@ -1,4 +1,4 @@
-(* WolframShrink Demo File *)
+(* Wshrink Demo File *)
 (* Save this file to see the extension in action *)
 
 (* Postfix transformation *)

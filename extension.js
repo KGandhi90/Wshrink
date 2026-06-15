@@ -55,12 +55,12 @@ function showSavedStatus(charsSaved) {
 		clearTimeout(statusResetTimer);
 	}
 
-	statusBarItem.text = `WolframShrink: saved ${charsSaved} chars`;
+	statusBarItem.text = `Wshrink: saved ${charsSaved} chars`;
 	statusBarItem.color = charsSaved > 0 ? new vscode.ThemeColor('charts.green') : undefined;
 	statusBarItem.show();
 
 	statusResetTimer = setTimeout(() => {
-		statusBarItem.text = 'WolframShrink ✓';
+		statusBarItem.text = 'Wshrink ✓';
 		statusBarItem.color = undefined;
 		statusBarItem.show();
 		statusResetTimer = undefined;
@@ -93,7 +93,7 @@ async function shortenDocument(document) {
  */
 function activate(context) {
 	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-	statusBarItem.text = 'WolframShrink ✓';
+	statusBarItem.text = 'Wshrink ✓';
 	statusBarItem.tooltip = 'Shorten Wolfram Language files';
 	statusBarItem.show();
 
@@ -140,7 +140,7 @@ function activate(context) {
 			pendingSavedChars.delete(uri);
 			showSavedStatus(charsSaved);
 		}),
-		vscode.commands.registerCommand('wolfram-shortener.shortenFile', async () => {
+		vscode.commands.registerCommand('wshrink.shortenFile', async () => {
 			const editor = vscode.window.activeTextEditor;
 
 			if (!editor || !isWolframDocument(editor.document)) {
