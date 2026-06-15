@@ -148,19 +148,19 @@ Sqrt /@ {1, 4, 9}
 
 ---
 
-<!-- ## Settings
+## Settings
 
 Go to `File → Preferences → Settings` and search for `Wshrink` to configure:
 
 | Setting | Default | Description |
 |---|---|---|
-| `wolframShortener.enablePostfix` | `true` | Convert `f[expr]` to `expr // f` |
-| `wolframShortener.enableMapOperator` | `true` | Convert `Map[f, list]` to `f /@ list` |
-| `wolframShortener.enableApplyOperator` | `true` | Convert `Apply[f, list]` to `f @@ list` |
-| `wolframShortener.enableLogicalOperators` | `true` | Convert `Not/And/Or` to `!/&&/\|\|` |
-| `wolframShortener.enablePartNotation` | `true` | Convert `Part[expr, i]` to `expr[[i]]` |
+| `wshrink.enablePostfix` | `true` | Convert `f[expr]` to `expr // f` |
+| `wshrink.enableMapOperator` | `true` | Convert `Map[f, list]` to `f /@ list` |
+| `wshrink.enableApplyOperator` | `true` | Convert `Apply[f, list]` to `f @@ list` |
+| `wshrink.enableLogicalOperators` | `true` | Convert `Not/And/Or` to `!/&&/\|\|` |
+| `wshrink.enablePartNotation` | `true` | Convert `Part[expr, i]` to `expr[[i]]` |
 
---- -->
+---
 
 ## How It Works
 
