@@ -1,145 +1,181 @@
-# WolframShrink
+# Wshrink 🔥
 
-WolframShrink is a VS Code extension that rewrites Wolfram Language code into shorter forms. It shortens supported patterns automatically when you save a file, and it also provides a manual command to shrink the current file on demand.
+A VS Code extension that automatically shortens Wolfram Language code on save — without changing the logic.
 
-## What it does
+Just like Prettier formats JavaScript, Wshrink optimizes your Wolfram code using the language's own built-in shorthand operators. Write verbose, readable code — save the file — get clean, idiomatic Wolfram.
 
-When you save a `.wl`, `.m`, or `.nb` file, the extension scans the content and rewrites only the patterns that become shorter. A permanent status bar item stays visible in the bottom-right corner so you can see the last save result at a glance.
+---
+
+## Features
+
+- ⚡ **Auto-shortens on save** — works automatically every time you hit `Ctrl+S`
+- 🧠 **Logic-preserving** — only changes how code is written, never what it does
+- 🛡️ **Safe** — never touches strings, comments, or function definitions
+- 📊 **Status bar** — shows how many characters were saved after every save
+- 🎛️ **Configurable** — toggle each transformation on or off in settings
+- 🖊️ **Manual command** — run it from the Command Palette anytime
+
+---
+
+## Supported File Types
+
+`.wl` `.m` `.nb`
+
+---
 
 ## Transformations
 
-### Postfix form
-
-Before:
+### 1. Postfix Operator `//`
 
 ```wolfram
-f[x]
+(* Before *)
+Print[Range[10]]
+
+(* After *)
+Range[10] // Print
 ```
 
-After:
+### 2. Map Operator `/@`
 
 ```wolfram
-x // f
+(* Before *)
+Map[Sqrt, {1, 4, 9, 16}]
+
+(* After *)
+Sqrt /@ {1, 4, 9, 16}
 ```
 
-### Map operator
-
-Before:
+### 3. Apply Operator `@@`
 
 ```wolfram
-Map[Sqrt, {1, 2, 3}]
+(* Before *)
+Apply[Plus, {1, 2, 3, 4, 5}]
+
+(* After *)
+Plus @@ {1, 2, 3, 4, 5}
 ```
 
-After:
+### 4. Logical Operators
 
 ```wolfram
-Sqrt /@ {1, 2, 3}
-```
-
-### Apply operator
-
-Before:
-
-```wolfram
-Apply[Plus, {1, 2, 3}]
-```
-
-After:
-
-```wolfram
-Plus @@ {1, 2, 3}
-```
-
-### Logical operators
-
-Before:
-
-```wolfram
+(* Before *)
 Not[x]
-```
-
-After:
-
-```wolfram
-!x
-```
-
-Before:
-
-```wolfram
 And[a, b, c]
-```
-
-After:
-
-```wolfram
-a && b && c
-```
-
-Before:
-
-```wolfram
 Or[x, y]
-```
 
-After:
-
-```wolfram
+(* After *)
+!x
+a && b && c
 x || y
 ```
 
-### Part notation
-
-Before:
+### 5. Part Notation
 
 ```wolfram
+(* Before *)
 Part[myList, 3]
+Part[myList, -1]
+
+(* After *)
+myList[[3]]
+myList[[-1]]
 ```
 
-After:
+### 6. Nested Transformations
 
 ```wolfram
-myList[[3]]
+(* Before *)
+Print[Map[Sqrt, Apply[Plus, {1,2,3}]]]
+
+(* After *)
+Plus @@ {1,2,3} // Sqrt /@ // Print
 ```
+
+---
+
+## What It Does NOT Touch
+
+```wolfram
+(* Comments are never modified *)
+(* Map[f, list] stays exactly as is inside a comment *)
+
+(* Strings are never modified *)
+x = "Map[f, list]"
+y = "Not[True]"
+
+(* Left hand side of definitions is never touched *)
+f[x_] := Print[x]
+g[x_, y_] := Map[Sqrt, {x, y}]
+
+(* Hold variants are never transformed inside *)
+Hold[Print[Range[10]]]
+HoldAll[Map[Sqrt, {1,4,9}]]
+
+(* 3-argument Map and Apply are left alone *)
+Map[f, {1,2,3}, {2}]
+Apply[Plus, {1,2,3}, {0,1}]
+
+(* Already shortened code is not touched again *)
+Range[10] // Print
+Sqrt /@ {1, 4, 9}
+```
+
+---
 
 ## Installation
 
-### From source
-
+### From Source
 1. Open this folder in VS Code.
 2. Press `F5` to launch an Extension Development Host.
-3. Open a supported Wolfram file and save it, or run the manual command from the Command Palette.
+3. Open any of the Wolfram Files (Files ending with .wl) and save it.
 
-### From a VSIX package
+<!-- ### From VS Code Marketplace -->
+<!-- 1. Open VS Code
+2. Go to Extensions (`Ctrl+Shift+X`)
+3. Search for `Wshrink`
+4. Click Install -->
 
-1. Package the extension into a `.vsix` file.
-2. In VS Code, open the Extensions view.
-3. Choose **Install from VSIX...** and select the package.
+<!-- ### From VSIX file
+1. Download the `.vsix` file from the releases page
+2. Open VS Code
+3. Go to Extensions (`Ctrl+Shift+X`)
+4. Click the `...` menu → `Install from VSIX`
+5. Select the downloaded file -->
 
-## Settings
+---
 
-The following settings are available under `wolframShortener`.
+<!-- ## Settings
 
-- `wolframShortener.enablePostfix`
-- `wolframShortener.enableMapOperator`
-- `wolframShortener.enableApplyOperator`
-- `wolframShortener.enableLogicalOperators`
-- `wolframShortener.enablePartNotation`
+Go to `File → Preferences → Settings` and search for `Wshrink` to configure:
 
-All settings default to `true`. Disable any of them to skip that transformation category.
+| Setting | Default | Description |
+|---|---|---|
+| `wolframShortener.enablePostfix` | `true` | Convert `f[expr]` to `expr // f` |
+| `wolframShortener.enableMapOperator` | `true` | Convert `Map[f, list]` to `f /@ list` |
+| `wolframShortener.enableApplyOperator` | `true` | Convert `Apply[f, list]` to `f @@ list` |
+| `wolframShortener.enableLogicalOperators` | `true` | Convert `Not/And/Or` to `!/&&/\|\|` |
+| `wolframShortener.enablePartNotation` | `true` | Convert `Part[expr, i]` to `expr[[i]]` |
 
-## Keyboard shortcuts
+--- -->
 
-- `Ctrl+S` saves a supported file and runs WolframShrink automatically.
-- `Ctrl+Shift+P` opens the Command Palette, where you can run `WolframShrink: Shorten This File`.
-- You can bind your own shortcut to `wolfram-shortener.shortenFile` if you want a dedicated keybinding.
+## How It Works
 
-## Manual command
+The extension hooks into VS Code's `onWillSaveTextDocument` event — the same approach used by Prettier and other formatters. When you save a Wolfram file:
 
-Use `WolframShrink: Shorten This File` to shorten the active Wolfram file immediately, without saving first. The command is registered as `wolfram-shortener.shortenFile`.
+1. The full file content is read
+2. Safe zones (strings, comments) are identified and locked
+3. Transformations are applied repeatedly in passes until no more changes occur
+4. The file is updated with the shortened version before hitting disk
+5. The status bar shows how many characters were saved
 
-## Supported file types
+The transformation engine uses character-by-character bracket matching instead of regex — this makes it reliable for nested and complex expressions.
 
-- `.wl`
-- `.m`
-- `.nb`
+---
+
+## Built With
+
+- JavaScript
+- VS Code Extension API
+- Zero external dependencies
+
+---
